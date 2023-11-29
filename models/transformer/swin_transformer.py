@@ -246,6 +246,7 @@ class SwinTransformerBlock(nn.Module):
         self.fused_window_process = fused_window_process
 
     def forward(self, x):
+        #print(f"input x: {x.shape}")
         H, W = self.input_resolution
         B, L, C = x.shape
         assert L == H * W, "input feature has wrong size"
@@ -290,7 +291,7 @@ class SwinTransformerBlock(nn.Module):
 
         # FFN
         x = x + self.drop_path(self.mlp(self.norm2(x)))
-
+        #print(f"output x: {x.shape}")
         return x
 
     def extra_repr(self) -> str:

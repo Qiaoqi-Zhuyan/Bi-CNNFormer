@@ -170,7 +170,7 @@ class ConvNextBasicLayer(nn.Module):
 
         if downsample:
            self.downsample = nn.Sequential(
-               LayerNorm(in_chans, eps=eps, data_format=data_format),
+               LayerNorm(in_chans, eps=eps, data_format="channels_first"),
                nn.Conv2d(in_chans, out_chans, kernel_size=kernel_size, stride=stride)
            )
         else:

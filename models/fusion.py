@@ -129,12 +129,13 @@ class Residual(nn.Module):
 
 
 class DwConv(nn.Module):
-    def __init__(self, in_chans, out_chans, kernel_size=3, stride=1, padding=1, bias=True):
+    def __init__(self, in_chans, out_chans, kernel_size=3, stride=1, padding=0, bias=True):
         super(DwConv, self).__init__()
-        self.dw = nn.Conv2d(in_chans, in_chans, kernel_size=3,stride=stride, padding=padding, groups=in_chans ,bias=bias)
+        self.dw = nn.Conv2d(in_chans, in_chans, kernel_size=kernel_size,stride=stride, padding=padding, groups=in_chans ,bias=bias)
         self.pw = nn.Conv2d(in_chans, out_chans, 1, 1, 0, bias=bias)
 
     def forward(self, x):
+
         x = self.dw(x)
         x = self.pw(x)
 
@@ -173,16 +174,21 @@ class Attn_fusion_Block(nn.Module):
         self.fuse_type = fuse_type
         # attn fusion patch
         self.num_heads = num_heads
-        self.head_dim = in_chans // num_heads
-        self.scale = self.head_dim  ** -0.5
+        head_dim = in_chans // num_heads
+        self.scale = head_dim ** -0.5
         if fuse_type == "add":
             self.in_chans = in_chans
         elif fuse_type == "cat":
             self.in_chans = in_chans * 2
 
-        self.to_q = DwConv(in_chans=self.in_chans, out_chans=self.in_chans, kernel_size=7, bias=bias)
-        self.to_k = DwConv(in_chans=self.in_chans, out_chans=self.in_chans, kernel_size=7, bias=bias)
-        self.to_v = DwConv(in_chans=self.in_chans, out_chans=self.in_chans, kernel_size=7, bias=bias)
+        #self.to_q = DwConv(in_chans=self.in_chans, out_chans=self.in_chans, kernel_size=3, bias=bias)
+        #self.to_k = DwConv(in_chans=self.in_chans, out_chans=self.in_chans, kernel_size=3, bias=bias)
+        #self.to_v = DwConv(in_chans=self.in_chans, out_chans=self.in_chans, kernel_size=3, bias=bias)
+
+        self.to_q = nn.Linear(in_chans, in_chans)
+        self.to_k = nn.Linear(in_chans, in_chans)
+        self.to_v = nn.Linear(in_chans, in_chans)
+
         self.softmax = nn.Softmax(dim=-1)
 
         self.project_out = nn.Linear(in_features=self.in_chans, out_features=in_chans)
@@ -223,20 +229,30 @@ class Attn_fusion_Block(nn.Module):
 
         B, C, H, W = x.shape
 
+        x = einops.rearrange(x, "b c h w -> b h w c")
+
         q = self.to_q(x)
         k = self.to_k(x)
-        v = self.to_v(x) # [b c h w]
+        v = self.to_v(x) # [b h w c ]
 
         # [b c h w] -> [b c1 num_heads, h w]
-        q = einops.rearrange(q, "b (c head) h w -> b c head (h w)", head=self.num_heads)
-        k = einops.rearrange(k, "b (c head) h w -> b c head (h w)", head=self.num_heads)
-        v = einops.rearrange(v, "b (c head) h w -> b c head (h w)", head=self.num_heads)
 
-        q = q * self.scale
-        dot = (q @ k.transpose(-2, -1))
-        attn = self.softmax(dot @ v)
+        #q = einops.rearrange(q, "b (c head) h w -> b c head (h w)", head=self.num_heads)
+        #k = einops.rearrange(k, "b (c head) h w -> b c head (h w)", head=self.num_heads)
+        #v = einops.rearrange(v, "b (c head) h w -> b c head (h w)", head=self.num_heads)
+
+
+        q = einops.rearrange(q, "b h w (c head) -> b (h w) head c", head=self.num_heads)
+        k = einops.rearrange(k, "b h w (c head) -> b (h w) head c", head=self.num_heads)
+        v = einops.rearrange(v, "b h w (c head) -> b (h w) head c", head=self.num_heads)
+
+
+        dot = (q @ k.transpose(-2, -1)) * self.scale
+        attn = self.softmax(dot)
+        attn = attn @ v
         # [b c1 num_heads, h w]
-        attn = einops.rearrange(attn, "b head c (h w) -> b h w (head c)", h=H, w=W)
+
+        attn = einops.rearrange(attn, "b (h w) head c  -> b h w (head c)", h=H, w=W)
 
         out = self.project_out(attn)
         self.attn_drop(out)
@@ -249,15 +265,12 @@ class Attn_fusion_Block(nn.Module):
         x = self.avg_pool(x_t) # [b c h w] -> [b c 1 1]
         print(f"max_pool shape: {x.shape}")
 
-
     def _cnn_forward(self, x_c):
         x = self.max_pool(x_c) # [b c h w] -> [b c 1 1]
 
     def forward(self, x_c, x_t):
         attn_fuse = self._fuse_forward(x_t, x_c)
         return attn_fuse
-
-
 
 
 if __name__ == "__main__":

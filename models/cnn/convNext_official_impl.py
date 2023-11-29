@@ -115,6 +115,7 @@ class ConvNeXt(nn.Module):
             print(f'downsample_layers x : {x.shape}')
             x = self.stages[i](x)
             print(f'stages {i} x : {x.shape}')
+        print(f"{x.shape}")
         return self.norm(x.mean([-2, -1]))  # global average pooling, (N, C, H, W) -> (N, C)
 
     def forward(self, x):
