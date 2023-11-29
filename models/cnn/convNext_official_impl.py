@@ -109,23 +109,16 @@ class ConvNeXt(nn.Module):
             trunc_normal_(m.weight, std=.02)
             nn.init.constant_(m.bias, 0)
 
-    def _fork_forward(self, x):
-        out = []
-
-        for i in range(4):
-            x = self.downsample_layers[i](x)
-            x = self.stages[i](x)
-            out[i] = x
-
-        return out
-
     def forward_features(self, x):
         for i in range(4):
             x = self.downsample_layers[i](x)
+            print(f'downsample_layers x : {x.shape}')
             x = self.stages[i](x)
+            print(f'stages {i} x : {x.shape}')
         return self.norm(x.mean([-2, -1]))  # global average pooling, (N, C, H, W) -> (N, C)
 
     def forward(self, x):
+        print(f'input x : {x.shape}')
         x = self.forward_features(x)
         x = self.head(x)
         return x
@@ -170,6 +163,11 @@ model_urls = {
     "convnext_large_22k": "https://dl.fbaipublicfiles.com/convnext/convnext_large_22k_224.pth",
     "convnext_xlarge_22k": "https://dl.fbaipublicfiles.com/convnext/convnext_xlarge_22k_224.pth",
 }
+
+
+
+
+
 
 
 @register_model
@@ -229,6 +227,6 @@ def ubc_convnext_tiny( num_classes=5, pretrained=True):
 
 if __name__ == "__main__":
     x = torch.randn(1, 3, 224, 224)
-    b = Block(dim=3)
-    y = b(x)
+    model = convnext_tiny()
+    y = model(x)
     print(y.shape)

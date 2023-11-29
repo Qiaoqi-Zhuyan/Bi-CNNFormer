@@ -396,6 +396,7 @@ class PoolFormer(nn.Module):
         outs = []
         for idx, block in enumerate(self.network):
             x = block(x)
+            print(f'stage: {idx + 1} x shape : {x.shape}')
             if self.fork_feat and idx in self.out_indices:
                 norm_layer = getattr(self, f'norm{idx}')
                 x_out = norm_layer(x)
@@ -408,7 +409,9 @@ class PoolFormer(nn.Module):
 
     def forward(self, x):
         # input embedding
+        print(f'input x shape : {x.shape}')
         x = self.forward_embeddings(x)
+        print(f'embedd x shape : {x.shape}')
         # through backbone
         x = self.forward_tokens(x)
         if self.fork_feat:
@@ -427,6 +430,8 @@ model_urls = {
     "poolformer_m36": "https://github.com/sail-sg/poolformer/releases/download/v1.0/poolformer_m36.pth.tar",
     "poolformer_m48": "https://github.com/sail-sg/poolformer/releases/download/v1.0/poolformer_m48.pth.tar",
 }
+
+
 
 
 @register_model
@@ -644,3 +649,9 @@ if has_mmseg and has_mmdet:
                 layer_scale_init_value=1e-6,
                 fork_feat=True,
                 **kwargs)
+
+if __name__ == "__main__":
+    x = torch.randn(1, 3, 224, 224)
+    pfm = poolformer_s12()
+    y = pfm(x)
+    print(y.shape)

@@ -109,6 +109,16 @@ class ConvNeXt(nn.Module):
             trunc_normal_(m.weight, std=.02)
             nn.init.constant_(m.bias, 0)
 
+    def _fork_forward(self, x):
+        out = []
+
+        for i in range(4):
+            x = self.downsample_layers[i](x)
+            x = self.stages[i](x)
+            out[i] = x
+
+        return out
+
     def forward_features(self, x):
         for i in range(4):
             x = self.downsample_layers[i](x)
@@ -149,6 +159,46 @@ class LayerNorm(nn.Module):
             return x
 
 
+class ConvNextBasicLayer(nn.Module):
+    def __init__(self, in_chans, out_chans, layer, eps=1e-6,
+                 data_format="channel_first",kernel_size=2, stride=2, downsample=True,
+                 drop_path_rate=0.1, layer_scale_init_value=1e-6, head_init_scale=1.):
+        super(ConvNextBasicLayer, self).__init__()
+        self.in_chans = in_chans
+        self.out_chans = out_chans
+        self.layer = layer
+
+        if downsample:
+           self.downsample = nn.Sequential(
+               LayerNorm(in_chans, eps=eps, data_format=data_format),
+               nn.Conv2d(in_chans, out_chans, kernel_size=kernel_size, stride=stride)
+           )
+        else:
+            self.downsample = nn.Identity()
+
+        self.blocks = nn.ModuleList([
+            *[Block(dim=in_chans, drop_path=drop_path_rate[j] if isinstance(drop_path_rate, list) else drop_path_rate, layer_scale_init_value=layer_scale_init_value) for j in range(layer)]
+        ])
+
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        if isinstance(m, (nn.Conv2d, nn.Linear)):
+            trunc_normal_(m.weight, std=.02)
+            nn.init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        for blk in self.blocks:
+            x = blk(x)
+
+        x = self.downsample(x)
+
+        return x
+
+
+
+
+
 model_urls = {
     "convnext_tiny_1k": "https://dl.fbaipublicfiles.com/convnext/convnext_tiny_1k_224_ema.pth",
     "convnext_small_1k": "https://dl.fbaipublicfiles.com/convnext/convnext_small_1k_224_ema.pth",
@@ -181,6 +231,12 @@ def convnext_small(pretrained=False, in_22k=False, **kwargs):
         model.load_state_dict(checkpoint["model"])
     return model
 
+
+def convnext_fork():
+    layers = [2, 2, 6, 1]
+    embed_dims = [64, 128, 320, 512]
+    model = ConvNeXt(depths=layers, dims=embed_dims)
+    return model
 
 @register_model
 def convnext_base(pretrained=False, in_22k=False, **kwargs):
@@ -219,6 +275,7 @@ def ubc_convnext_tiny( num_classes=5, pretrained=True):
 
 if __name__ == "__main__":
     x = torch.randn(1, 3, 224, 224)
-    b = Block(dim=3)
-    y = b(x)
+    blks = ConvNextBasicLayer(3, 64, 2, downsample=True)
+    y = blks(x)
     print(y.shape)
+

@@ -2,6 +2,7 @@ import torch
 from torch import nn
 from timm.models.layers import DropPath, trunc_normal_
 
+import einops
 
 class CNN_Transformer_Fusion(nn.Module):
     pass
@@ -13,7 +14,7 @@ class ChannelPool(nn.Module):
 
 
 class BiFusion_block(nn.Module):
-    def __init__(self, in_chan_1, in_chan_2, ratio, hidden_dim,drop=0.0 ,drop_path=0.0):
+    def __init__(self, in_chan_1, in_chan_2, ratio, hidden_dim, drop=0.0, drop_path=0.0):
         super(BiFusion_block, self).__init__()
 
         # channel attn for F_g
@@ -125,3 +126,146 @@ class Residual(nn.Module):
         out = self.conv3(out)
         out += residual
         return out
+
+
+class DwConv(nn.Module):
+    def __init__(self, in_chans, out_chans, kernel_size=3, stride=1, padding=1, bias=True):
+        super(DwConv, self).__init__()
+        self.dw = nn.Conv2d(in_chans, in_chans, kernel_size=3,stride=stride, padding=padding, groups=in_chans ,bias=bias)
+        self.pw = nn.Conv2d(in_chans, out_chans, 1, 1, 0, bias=bias)
+
+    def forward(self, x):
+        x = self.dw(x)
+        x = self.pw(x)
+
+        return x
+
+
+class FusionModule(nn.Module):
+    def __init__(self, in_chans, drop=0.0):
+        super(FusionModule, self).__init__()
+        self.conv = nn.Sequential(
+            nn.Linear(in_chans * 2, in_chans),
+            nn.Dropout(drop),
+            nn.ReLU(),
+            nn.Linear(in_chans, in_chans),
+            nn.Dropout(drop),
+            nn.Softmax(dim=-1)
+        )
+
+    def forward(self, x_t, x_c):
+
+        x = torch.cat([x_c, x_t], dim=1)
+        x = einops.rearrange(x, "b c h w -> b h w c")
+        wights = self.conv(x)
+        wights = einops.rearrange(wights, "b h w c -> b c h w")
+        x = x_c * wights + x_t * (1 - wights)
+
+        return x
+
+
+class Attn_fusion_Block(nn.Module):
+
+    def __init__(self, in_chans, num_heads, fuse_type="add", attn_drop=0.0,drop=0.0, drop_path=0.0, bias=True):
+        super(Attn_fusion_Block, self).__init__()
+
+        assert fuse_type == "add" or fuse_type == "cat"
+        self.fuse_type = fuse_type
+        # attn fusion patch
+        self.num_heads = num_heads
+        self.head_dim = in_chans // num_heads
+        self.scale = self.head_dim  ** -0.5
+        if fuse_type == "add":
+            self.in_chans = in_chans
+        elif fuse_type == "cat":
+            self.in_chans = in_chans * 2
+
+        self.to_q = DwConv(in_chans=self.in_chans, out_chans=self.in_chans, kernel_size=7, bias=bias)
+        self.to_k = DwConv(in_chans=self.in_chans, out_chans=self.in_chans, kernel_size=7, bias=bias)
+        self.to_v = DwConv(in_chans=self.in_chans, out_chans=self.in_chans, kernel_size=7, bias=bias)
+        self.softmax = nn.Softmax(dim=-1)
+
+        self.project_out = nn.Linear(in_features=self.in_chans, out_features=in_chans)
+
+        self.attn_drop = nn.Dropout(attn_drop)
+
+
+        # cnn feat patch
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+
+
+
+        #transformer feat patch
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
+
+
+        # init weights
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        if isinstance(m, (nn.Conv2d, nn.Linear)):
+            trunc_normal_(m.weight, std=.02)
+            nn.init.constant_(m.bias, 0)
+
+    def _fuse_forward(self, x_t, x_c):
+        '''
+
+        :param x_t: [b c h w]
+        :param x_c: [b c h w]
+
+            two fusion strategies: add, cat
+        :return:      out [b c h w]
+        '''
+        if self.fuse_type == "cat":
+            x = torch.cat([x_c, x_t], dim=1)
+        elif self.fuse_type == "add":
+            x = torch.add(x_c, x_t)
+
+        B, C, H, W = x.shape
+
+        q = self.to_q(x)
+        k = self.to_k(x)
+        v = self.to_v(x) # [b c h w]
+
+        # [b c h w] -> [b c1 num_heads, h w]
+        q = einops.rearrange(q, "b (c head) h w -> b c head (h w)", head=self.num_heads)
+        k = einops.rearrange(k, "b (c head) h w -> b c head (h w)", head=self.num_heads)
+        v = einops.rearrange(v, "b (c head) h w -> b c head (h w)", head=self.num_heads)
+
+        q = q * self.scale
+        dot = (q @ k.transpose(-2, -1))
+        attn = self.softmax(dot @ v)
+        # [b c1 num_heads, h w]
+        attn = einops.rearrange(attn, "b head c (h w) -> b h w (head c)", h=H, w=W)
+
+        out = self.project_out(attn)
+        self.attn_drop(out)
+
+        out = einops.rearrange(out, "b h w c -> b c h w ")
+
+        return out
+
+    def _transformer_forward(self, x_t):
+        x = self.avg_pool(x_t) # [b c h w] -> [b c 1 1]
+        print(f"max_pool shape: {x.shape}")
+
+
+    def _cnn_forward(self, x_c):
+        x = self.max_pool(x_c) # [b c h w] -> [b c 1 1]
+
+    def forward(self, x_c, x_t):
+        attn_fuse = self._fuse_forward(x_t, x_c)
+        return attn_fuse
+
+
+
+
+if __name__ == "__main__":
+
+    x_l = torch.randn(1, 64, 224, 224)
+    x_h = torch.randn(1, 64, 224, 224)
+
+    afb = Attn_fusion_Block(in_chans=64, num_heads=8, fuse_type="add")
+
+    y = afb._transformer_forward(x_h)
+    print(f"_transformer_forward : ")

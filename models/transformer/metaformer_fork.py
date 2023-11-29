@@ -24,6 +24,7 @@ from timm.models.layers import DropPath, trunc_normal_
 from timm.models.registry import register_model
 from timm.models.layers.helpers import to_2tuple
 
+import einops
 
 class Mlp(nn.Module):
     """
@@ -55,6 +56,42 @@ class Mlp(nn.Module):
         x = self.fc2(x)
         x = self.drop(x)
         return x
+
+
+class Downsample(nn.Module):
+    '''
+        input: [B, C, H, W] -> output: [B, C * 2, H // 2, W // 2]
+    '''
+    def __init__(self, in_channel, norm_layer=nn.LayerNorm, type="linear"):
+        super(Downsample, self).__init__()
+        self.norm = norm_layer(4 * in_channel)
+        self.fc = nn.Linear(4 * in_channel, 2 * in_channel)
+        self.conv = nn.Conv2d(in_channels=4 * in_channel, out_channels=2 * in_channel, kernel_size=1, stride=1)
+        self.type = type
+
+    def forward(self, x):
+        _, _, H, W = x.shape
+
+        assert H % 2 == 0 and W % 2 == 0, f"x size ({H}*{W}) are not even."
+        assert type == "linear" or type == "conv", "worry type"
+
+        x0 = x[:, :, 0::2, 0::2]
+        x1 = x[:, :, 1::2, 0::2]
+        x2 = x[:, :, 0::2, 1::2]
+        x3 = x[:, :, 1::2, 1::2] # -> [B, C, H//2, W//2]
+
+        x = torch.cat([x0, x1, x2, x3], 1)
+
+        x = einops.rearrange(x, "b c h w -> b h w c")
+        x = self.norm(x)
+
+        if self.type == "linear":
+            x = self.fc(x)
+            return einops.rearrange(x, "b h w c -> b c h w")
+
+        elif self.type == "conv":
+            x = einops.rearrange(x, "b h w c -> b c h w")
+            return self.conv(x)
 
 
 class GroupNorm(nn.GroupNorm):
@@ -121,6 +158,7 @@ def _cfg(url='', **kwargs):
         'classifier': 'head',
         **kwargs
     }
+
 
 class AddPositionEmb(nn.Module):
     """Module to add position embedding to input features
@@ -423,6 +461,19 @@ model_urls = {
     "metaformer_pppf_s12_224": "https://github.com/sail-sg/poolformer/releases/download/v1.0/metaformer_pppf_s12_224.pth.tar",
     "metaformer_ppff_s12_224": "https://github.com/sail-sg/poolformer/releases/download/v1.0/metaformer_ppff_s12_224.pth.tar",
 }
+
+
+@register_model
+def metaformer_fork():
+    layers = [2, 2, 6, 1]
+    mlp_ratios = [4, 4, 4, 4]
+    embed_dims = [64, 128, 320, 512]
+    downsamples = [True, True, True, True]
+    model = MetaFormer(
+        layers, embed_dims=embed_dims,
+        mlp_ratios=mlp_ratios, downsamples=downsamples)
+    return model
+
 
 
 @register_model
