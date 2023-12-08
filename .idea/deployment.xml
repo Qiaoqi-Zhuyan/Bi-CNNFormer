@@ -114,6 +114,13 @@
           </mappings>
         </serverdata>
       </paths>
+      <paths name="root@connect.westb.seetacloud.com:27230 password (3)">
+        <serverdata>
+          <mappings>
+            <mapping local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
       <paths name="root@region-31.seetacloud.com:30390 password">
         <serverdata>
           <mappings>

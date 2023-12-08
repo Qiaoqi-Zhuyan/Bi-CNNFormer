@@ -226,8 +226,13 @@ def ubc_convnext_tiny( num_classes=5, pretrained=True):
     model = UBC_ConvNext_tiny(num_classes=num_classes, pretrained=pretrained)
     return model"""
 
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 if __name__ == "__main__":
     x = torch.randn(1, 3, 224, 224)
-    model = convnext_tiny()
+    model = convnext_base()
+    params = count_parameters(model)
+    print(f"params : {params}")
     y = model(x)
     print(y.shape)
