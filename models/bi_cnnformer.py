@@ -746,7 +746,8 @@ if __name__ == "__main__":
         drop_path_rate=0.1, layer_scale_init_value=1e-6, head_init_scale=1.
     )
 
-    params = count_parameters(model)
+
+    params= count_parameters(model)
     print(f"model params : {params}")
     y = model(x_c, x_t)
 

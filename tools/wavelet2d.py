@@ -8,12 +8,12 @@ from tqdm import tqdm
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--image_path', default='E:\\project_TransUNet\\data\\Synapse\\train_npz')
-    parser.add_argument('--L_path', default='E:\\project_TransUNet\\data\\Synapse\\train_npzL')
-    parser.add_argument('--H_path', default='E:\\project_TransUNet\\data\\Synapse\\train_npzH')
+    parser.add_argument('--image_path', default='E:\ISIC2018\ISIC2018_Task1-2_Training_Input')
+    parser.add_argument('--L_path', default='E:\\Fundus-doFE\\Fundus\\Domain2\\train\\greyimageL')
+    parser.add_argument('--H_path', default='E:\\Fundus-doFE\\Fundus\\Domain2\\train\\greyimageH')
     parser.add_argument('--wavelet_type', default='db2', help='haar, db2, bior1.5, bior2.4, coif1, dmey')
     parser.add_argument('--if_RGB', default=False)
-    parser.add_argument('--numpy_file', default=True)
+    parser.add_argument('--numpy_file', default=False)
     args = parser.parse_args()
 
     if not os.path.exists(args.L_path):
@@ -24,7 +24,7 @@ if __name__ == '__main__':
     image_files = [f for f in os.listdir(args.image_path) if f.endswith('.png') or f.endswith('.jpg') or f.endswith(".tif")]
     numpy_files = [f for f in os.listdir(args.image_path) if f.endswith('.npz')]
 
-    for i in tqdm(numpy_files):
+    for i in tqdm(image_files):
         image_path = os.path.join(args.image_path, i)
         #L_path = os.path.join(args.L_path, i)
         #H_path = os.path.join(args.H_path, i)

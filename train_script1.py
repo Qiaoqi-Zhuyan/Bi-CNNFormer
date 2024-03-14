@@ -13,6 +13,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 from torch.backends import cudnn
 import random
+from tools.loss_function import segmentation_loss
 
 
 def init_seeds(seed):
